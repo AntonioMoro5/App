@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Calendario Madrid 2026 + Notebook</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<style>
+html, body {
+  margin:0;
+  padding:0;
+  height:100%;
+  font-family: Arial, sans-serif;
+  background:#f4f4f4;
+}
+
+h1 { text-align:center; margin:6px 0; }
+
+/* GRID PRINCIPAL */
+#dashboard {
+  display:grid;
+  grid-template-columns: 1fr 300px; /* calendario + notebook */
+  gap:10px;
+  height:calc(100vh - 40px); /* altura completa menos header */
+  padding:10px;
+  box-sizing:border-box;
+}
+
+/* CALENDARIO */
+#calendario {
+  display:grid;
+  grid-template-columns: repeat(6, 1fr); /* 6 meses por fila */
+  grid-auto-rows: 1fr;
+  gap:10px;
+  overflow-y:auto;
+}
+
+/* MES */
+.mes {
+  background:#fff;
+  border:1px solid #ddd;
+  border-radius:6px;
+  display:flex;
+  flex-direction:column;
+}
+
+.mes h2 {
+  text-align:center;
+  font-size:14px;
+  margin:6px 0;
+}
+
+.semana, .dias {
+  display:grid;
+  grid-template-columns:repeat(7,1fr);
+  font-size:11px;
+  text-align:center;
+}
+.semana { font-weight:bold; }
+
+.dia {
+  background:#f0f0f0;
+  margin:2px;
+  border-radius:4px;
+  height:40px;
+  position:relative;
+  cursor:pointer;
+  transition:all 0.2s;
+}
+.dia-numero {
+  font-size:11px;
+  font-weight:bold;
+  position:absolute;
+  top:3px;
+  left:4px;
+}
+.domingo { background:#ffe0e0; }
+.festivo-comunidad { background:#d32f2f; color:white; }
+.festivo-local { background:#ef5350; color:white; }
+.santo { background:#4caf50; color:white; }
+.vacio { background:transparent; cursor:default; }
+.dia-evento { background:#1976d2 !important; color:white !important; font-weight:bold; }
+.dia:hover { filter:brightness(0.9); }
+
+/* NOTEBOOK */
+#notebook {
+  background:#fff;
+  border:1px solid #ddd;
+  border-radius:6px;
+  padding:10px;
+  display:flex;
+  flex-direction:column;
+  height:100%;
+  overflow-y:auto;
+}
+#listaTareas li {
+  background:#f0f0f0;
+  margin-bottom:4px;
+  padding:4px 6px;
+  border-radius:4px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+#listaTareas li.done { text-decoration:line-through; color:#666; }
+#listaTareas button { background:red; color:white; border:none; border-radius:3px; cursor:pointer; }
+
+/* MODAL */
+.modal {
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,.6);
+  display:none;
+  align-items:center;
+  justify-content:center;
+  z-index:1000;
+}
+.modal-content {
+  background:white;
+  padding:20px;
+  border-radius:8px;
+  width:320px;
+}
+.modal-content input,
+.modal-content textarea {
+  width:100%;
+  margin-bottom:8px;
+}
+.modal-content button { margin-right:6px; }
+
+/* RESPONSIVO */
+@media(max-width:1200px){
+  #dashboard { grid-template-columns:1fr; height:auto; }
+  #notebook { height:auto; margin-top:10px; }
+  #calendario { grid-template-columns: repeat(3,1fr); }
+}
+@media(max-width:800px){
+  #calendario { grid-template-columns: repeat(2,1fr); }
+  .dia { height:32px; }
+  .dia-numero { font-size:10px; }
+  .semana, .dias { font-size:10px; }
+}
+</style>
+</head>
+<body>
+<h1>Calendario Madrid 2026</h1>
+
+<div id="dashboard">
+  <div id="calendario"></div>
+
+  <div id="notebook">
+    <h3>Notebook - Tareas pendientes</h3>
+    <input id="nuevaTarea" placeholder="Nueva tarea" style="width:100%; margin-bottom:6px;">
+    <button onclick="agregarTarea()" style="width:100%; margin-bottom:10px;">Añadir tarea</button>
+    <ul id="listaTareas" style="list-style:none; padding-left:0;"></ul>
+  </div>
+</div>
+
+<div id="modal" class="modal">
+  <div class="modal-content">
+    <h3 id="modalTitulo"></h3>
+    <input id="evtTitulo" placeholder="Título">
+    <textarea id="evtDesc" placeholder="Descripción"></textarea>
+    <input id="evtHora" type="time">
+    <input type="hidden" id="evtFecha">
+    <input type="hidden" id="evtId">
+    <button onclick="guardarEvento()">Guardar</button>
+    <button onclick="eliminarEvento()">Eliminar</button>
+    <button onclick="cerrarModal()">Cancelar</button>
+  </div>
+</div>
+
+<script>
+// -------- SUPABASE --------
+const supabaseClient = supabase.createClient(
+  "https://pchvrcdgixizeevfilvb.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBjaHZyY2RnaXhpemVldmZpbHZiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY3MDk3MzksImV4cCI6MjA4MjI4NTczOX0.awDdzx5wfbOmx4cd-CFTbbWtyLFdrU-sriopJ_sO7sY"
+);
+
+const YEAR = 2026;
+const festivosComunidad = {"01-01":"Año Nuevo","06-01":"Reyes","02-04":"Jueves Santo","03-04":"Viernes Santo","01-05":"Trabajo","02-05":"Comunidad Madrid","15-08":"Asunción","12-10":"Fiesta Nacional","02-11":"Todos los Santos","07-12":"Constitución","08-12":"Inmaculada","25-12":"Navidad"};
+const festivosLocal = {"15-05":"San Isidro","09-11":"Almudena"};
+const santoral = {"25-01":"San Pablo","13-06":"San Antonio de Padua","11-08":"Santa Clara","08-08":"Santa Paloma","30-09":"San Sofía","28-10":"San Simón y Judas","16-11":"Santa Alegría"};
+
+let eventos = [];
+
+function renderCalendario(){
+  const cal = document.getElementById("calendario");
+  cal.innerHTML="";
+  for(let m=0;m<12;m++){
+    const mes = document.createElement("div");
+    mes.className="mes";
+    mes.innerHTML=`<h2>${new Date(YEAR,m).toLocaleString("es",{month:"long"})}</h2>`;
+
+    const cab=document.createElement("div");
+    cab.className="semana";
+    ["L","M","X","J","V","S","D"].forEach(d=>cab.innerHTML+=`<div>${d}</div>`);
+    mes.appendChild(cab);
+
+    const dias=document.createElement("div");
+    dias.className="dias";
+
+    let first=new Date(YEAR,m,1).getDay(); first=first===0?6:first-1;
+    for(let i=0;i<first;i++) dias.innerHTML+=`<div class="dia vacio"></div>`;
+
+    const total=new Date(YEAR,m+1,0).getDate();
+    for(let d=1;d<=total;d++){
+      const fechaISO=`${YEAR}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+      const clave=`${String(d).padStart(2,"0")}-${String(m+1).padStart(2,"0")}`;
+      const div=document.createElement("div");
+      div.className="dia";
+      div.innerHTML=`<div class="dia-numero">${d}</div>`;
+      div.onclick=()=>abrirModal(fechaISO);
+
+      const date=new Date(YEAR,m,d);
+      if(date.getDay()===0) div.classList.add("domingo");
+      if(festivosComunidad[clave]) div.classList.add("festivo-comunidad");
+      if(festivosLocal[clave]) div.classList.add("festivo-local");
+      if(santoral[clave]) div.classList.add("santo");
+
+      // tooltip
+      let titleText="";
+      if(festivosComunidad[clave]) titleText+=festivosComunidad[clave];
+      if(festivosLocal[clave]) titleText+=(titleText?"\n":"")+festivosLocal[clave];
+      if(santoral[clave]) titleText+=(titleText?"\n":"")+santoral[clave];
+      if(titleText) div.title=titleText;
+
+      div.id=`dia-${fechaISO}`;
+      dias.appendChild(div);
+    }
+
+    mes.appendChild(dias);
+    cal.appendChild(mes);
+  }
+}
+
+async function cargarEventos(){
+  const {data}=await supabaseClient.from("eventos").select("*");
+  eventos=data||[];
+  eventos.forEach(e=>{
+    const dia=document.getElementById(`dia-${e.fecha}`);
+    if(!dia) return;
+    dia.classList.add("dia-evento");
+    dia.title += `\n${e.titulo}${e.hora?" ("+e.hora+")":""}`;
+    dia.onclick=()=>abrirModal(e.fecha,e);
+  });
+}
+
+function abrirModal(fecha,e=null){
+  document.getElementById("modal").style.display="flex";
+  document.getElementById("evtFecha").value=fecha;
+  document.getElementById("evtId").value=e?e.id:"";
+  document.getElementById("evtTitulo").value=e?e.titulo:"";
+  document.getElementById("evtDesc").value=e?e.descripcion||"":"";
+  document.getElementById("evtHora").value=e?e.hora||"":"";
+  document.getElementById("modalTitulo").innerText= e?"Editar evento":"Nuevo evento";
+}
+
+function cerrarModal(){ document.getElementById("modal").style.display="none"; }
+
+async function guardarEvento(){
+  const id=document.getElementById("evtId").value;
+  const data={
+    fecha:document.getElementById("evtFecha").value,
+    titulo:document.getElementById("evtTitulo").value,
+    descripcion:document.getElementById("evtDesc").value,
+    hora:document.getElementById("evtHora").value
+  };
+  id
+   ? await supabaseClient.from("eventos").update(data).eq("id",id)
+   : await supabaseClient.from("eventos").insert(data);
+  cerrarModal();
+  renderCalendario();
+  cargarEventos();
+}
+
+async function eliminarEvento(){
+  const id=document.getElementById("evtId").value;
+  if(!id) return cerrarModal();
+  if(confirm("¿Eliminar evento?")){
+    await supabaseClient.from("eventos").delete().eq("id",id);
+    cerrarModal();
+    renderCalendario();
+    cargarEventos();
+  }
+}
+
+// -------- NOTEBOOK --------
+async function cargarTareas(){
+  const {data} = await supabaseClient.from("tareas").select("*").order("id",{ascending:true});
+  const ul = document.getElementById("listaTareas");
+  ul.innerHTML="";
+  data.forEach(t=>{
+    const li = document.createElement("li");
+    li.innerText = t.titulo;
+    li.id = "tarea-"+t.id;
+    if(t.completada) li.classList.add("done");
+
+    const btn = document.createElement("button");
+    btn.innerText="X";
+    btn.onclick=async (e)=>{
+      e.stopPropagation();
+      await supabaseClient.from("tareas").delete().eq("id",t.id);
+      cargarTareas();
+    };
+
+    li.onclick=async ()=>{
+      await supabaseClient.from("tareas").update({completada: !t.completada}).eq("id",t.id);
+      cargarTareas();
+    };
+
+    li.appendChild(btn);
+    ul.appendChild(li);
+  });
+}
+
+async function agregarTarea(){
+  const input = document.getElementById("nuevaTarea");
+  const titulo = input.value.trim();
+  if(!titulo) return;
+  await supabaseClient.from("tareas").insert({titulo:titulo, completada:false});
+  input.value="";
+  cargarTareas();
+}
+
+// INIT
+renderCalendario();
+cargarEventos();
+cargarTareas();
+</script>
+</body>
+</html>
